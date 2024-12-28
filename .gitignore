@@ -1,2 +1,13 @@
+# Node modules
+node_modules/
 
-node_modules
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Environment variables
+.env
+
+# Ignore database.js file
+src/config/database.js
