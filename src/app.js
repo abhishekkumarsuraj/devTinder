@@ -1,15 +1,17 @@
 const express = require("express");
 const connectDB = require("./config/database");
 const User = require("./models/user");
+const { vaildateSignUpData } = require("./utils/validation");
+const bcrypt = require("bcrypt");
+const cookieParser = require("cookie-parser");
+const jwt = require("jsonwebtoken");
 const app = express();
 const port = 3000;
-const { adminAuth, userAuth } = require("./middlewares/auth");
+const { userAuth } = require("./middlewares/auth");
 app.use(express.json());
+app.use(cookieParser());
 
 // Handle the route /user with the adminAuth middleware
-
-app.use("/admin", adminAuth);
-app.use("/user", userAuth);
 
 const ALLOWED_UPDATES = [
   "firstName",
@@ -83,45 +85,67 @@ app.patch("/user/updateUserPartially", async (req, res) => {
 
 //Admin
 
-app.post("/admin/addUser", async (req, res) => {
-  const user = new User(req.body);
+app.post("/signup", async (req, res) => {
   try {
-    if (req.body?.skills.length > 10) {
-      throw new Error("Skills should not be more than 10");
-    }
+    //validation of data
+    vaildateSignUpData(req);
+    const { firstName, lastName, emailId, password, age } = req.body;
+    //Encrypt the password
+    const passwordHash = await bcrypt.hash(password, 10);
+    //Creating new instance and user model
+    const user = new User({
+      firstName,
+      lastName,
+      emailId,
+      password: passwordHash,
+      age,
+    });
     await user.save();
     res.send("User added successfully " + user);
   } catch (error) {
-    res.status(500).send("Error while adding user " + error.message);
+    res.status(500).send("Error while signing Up user: " + error.message);
   }
 });
 
-app.get("/admin/user", async (req, res) => {
+app.post("/login", async (req, res) => {
   try {
-    const userEmail = req.body.emailId;
-    const users = await User.find({ emailId: userEmail });
-    if (users.length === 0) {
-      res.status(404).send("User not found.");
-    } else {
-      res.send(users);
+    let { emailId, password } = req.body;
+    emailId = emailId.toLowerCase();
+    console.log(emailId);
+    const user = await User.findOne({ emailId: emailId });
+    if (!user || user.emailId !== emailId) {
+      throw new Error("Invalid credentials");
     }
+    const isPasswordValid = await user.validatePassword(password);
+    if (!isPasswordValid) {
+      throw new Error("Invalid credentials");
+    }
+
+    const token = await user.getJWT();//jwt.sign({ _id: dbUser._id }, "DEV@Tinder$790",{ expiresIn: '1h' });
+
+    // And add the token to cookie send it to the user in response
+    res.cookie("token", token);
+
+    res.send("User logged In successfully with emailId: " + emailId);
   } catch (error) {
-    res.status(500).send("Error while fetching user data " + error.message);
+    res.status(500).send("Error while logging in user: " + error.message);
   }
 });
 
-app.get("/admin/allUser", async (req, res) => {
+app.get("/profile", userAuth, async (req, res) => {
   try {
-    const users = await User.find({});
-    if (users.length === 0) {
-      res.status(404).send("User not found.");
-    } else {
-      res.send(users);
-    }
+    const user = req.user;
+    res.send(user);
   } catch (error) {
-    res.status(500).send("Error while fetching user data " + error.message);
+    res.status(400).send(" Error while fetching user data " + error.message);
   }
 });
+
+app.post("/sendConnectionRequest", userAuth, async (req, res) => {
+    // Sending connection request
+    res.status(200).send(req.user.firstName+" "+req.user.lastName+" has sent Connection request successfully");
+});
+  
 
 app.delete("/admin/deleteUser", async (req, res) => {
   try {
